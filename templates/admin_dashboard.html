@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Admin Dashboard</h2>
+
+    <h3 style="margin: 2rem 0 1rem; color: var(--primary);">Patients</h3>
+    {% if patients %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Created (IST)</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in patients %}
+                    <tr>
+                        <td>{{ u.name }}</td>
+                        <td>{{ u.username }}</td>
+                        <td>{{ u.created_str }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('admin_delete_user', uid=u.id_str) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-danger" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="return confirm('Delete patient and their reports?')">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="color: var(--text-secondary);">No patients found.</p>
+    {% endif %}
+
+    <h3 style="margin: 2rem 0 1rem; color: var(--primary);">Doctors</h3>
+    {% if doctors %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Created (IST)</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in doctors %}
+                    <tr>
+                        <td>{{ u.name }}</td>
+                        <td>{{ u.username }}</td>
+                        <td>{{ u.created_str }}</td>
+                        <td>
+                             <form method="POST" action="{{ url_for('admin_delete_user', uid=u.id_str) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-danger" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="return confirm('Delete doctor and their batches?')">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="color: var(--text-secondary);">No doctors found.</p>
+    {% endif %}
+
+    <h3 style="margin: 2rem 0 1rem; color: var(--primary);">Bulk Upload Batches</h3>
+    {% if batches %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Doctor</th>
+                    <th>Rows</th>
+                    <th>Uploaded (IST)</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in batches %}
+                    <tr>
+                        <td>{{ b.filename }}</td>
+                        <td>{{ b.doctor_name }} ({{ b.doctor_username }})</td>
+                        <td>{{ b.row_count }}</td>
+                        <td>{{ b.created_str }}</td>
+                        <td>
+                            <a href="{{ url_for('doctor_bulk_view', bid=b.id_str) }}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.9rem; margin-right: 5px;">View</a>
+                            <a href="{{ url_for('doctor_bulk_download', bid=b.id_str) }}" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem; margin-right: 5px;">XLSX</a>
+                            <form method="POST" action="{{ url_for('admin_delete_batch', bid=b.id_str) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-danger" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="return confirm('Delete this batch and all its rows?')">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="color: var(--text-secondary);">No batches found.</p>
+    {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>DR Assessment Report</title>
+<style>
+    body {
+        font-family: "Segoe UI", Roboto, Arial, sans-serif;
+        margin: 0;
+        padding: 10px;
+        color: #222;
+        background: #fff;
+        font-size: 13px;
+    }
+
+    .container {
+        max-width: 750px;
+        margin: auto;
+        background: #fff;
+        border-radius: 6px;
+        box-shadow: 0 0 3px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+
+    .header {
+        background: linear-gradient(90deg, #1e3c72, #2a5298);
+        color: #fff;
+        text-align: center;
+        padding: 10px 8px;
+    }
+
+    .header h1 {
+        margin: 0;
+        font-size: 18px;
+    }
+
+    .header p {
+        margin: 2px 0 0;
+        font-size: 11px;
+        opacity: 0.85;
+    }
+
+    .content-wrapper {
+        padding: 12px 18px;
+    }
+
+    .section {
+        margin-bottom: 10px;
+    }
+
+    .section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1e3c72;
+        border-bottom: 1px solid #ddd;
+        margin-bottom: 6px;
+        padding-bottom: 3px;
+    }
+
+    /* FIXED: Label and value inline */
+    .info-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 4px;
+        font-size: 13px;
+    }
+
+    .info-label {
+        font-weight: 600;
+        color: #1e3c72;
+        width: 110px;
+        flex-shrink: 0;
+    }
+
+    .info-value {
+        color: #333;
+        flex: 1;
+    }
+
+    .prediction-box {
+        text-align: center;
+        border-radius: 6px;
+        padding: 10px;
+        font-weight: 600;
+        font-size: 13px;
+    }
+
+    .high-risk {
+        background: #ffecec;
+        border: 1px solid #f5b7b1;
+        color: #b03a2e;
+    }
+
+    .low-risk {
+        background: #ecfdf0;
+        border: 1px solid #a9dfbf;
+        color: #1e8449;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    th, td {
+        text-align: left;
+        padding: 6px 5px;
+        border-bottom: 1px solid #eee;
+    }
+
+    th {
+        background: #f5f7fa;
+        font-weight: 600;
+    }
+
+    .disclaimer {
+        font-size: 11px;
+        color: #856404;
+        background: #fff8e1;
+        border: 1px solid #ffe58f;
+        border-radius: 4px;
+        padding: 8px;
+        margin-top: 8px;
+        line-height: 1.4;
+    }
+
+    .footer {
+        text-align: center;
+        font-size: 10px;
+        color: #777;
+        border-top: 1px solid #eee;
+        margin-top: 8px;
+        padding-top: 5px;
+    }
+
+</style>
+</head>
+<body>
+<div class="container">
+
+    <div class="header">
+        <h1>Diabetic Retinopathy Report</h1>
+        <p>Automated Screening System</p>
+    </div>
+
+    <div class="content-wrapper">
+
+        <div class="section">
+            <div class="section-title">Patient Information</div>
+            <div class="info-row">
+                <div class="info-label">Name:</div>
+                <div class="info-value">{{ patient_name }}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Username:</div>
+                <div class="info-value">{{ patient_username }}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Date:</div>
+                <div class="info-value">{{ created_at }}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Doctor:</div>
+                <div class="info-value">
+                    {% if doctor_name != "Not assigned" %}
+                        {{ doctor_name }} ({{ doctor_username }})
+                    {% else %}
+                        Not Assigned
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Prediction Result</div>
+            {% if prediction == 1 %}
+                <div class="prediction-box high-risk">
+                    POSITIVE (DR Detected)<br>
+                    <small>Threshold: 0.371 | Prob: {{ "%.4f"|format(probability) }} ({{ "%.1f"|format(probability * 100) }}%)</small>
+                </div>
+            {% else %}
+                <div class="prediction-box low-risk">
+                    NEGATIVE (No DR)<br>
+                    <small>Threshold: 0.371 | Prob: {{ "%.4f"|format(probability) }} ({{ "%.1f"|format(probability * 100) }}%)</small>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <div class="section-title">Clinical Features</div>
+            <table>
+                <tr><th>Feature</th><th>Value</th><th>Type</th></tr>
+                {% set img = ["exudates_count","hemorrhages_count","microaneurysms_count","vessel_tortuisioty","macular_thickness"] %}
+                {% set clin = ["fasting_glucose","hba1c","diabetes_duration"] %}
+                {% for f,v in features.items() %}
+                    {% if f in img %}
+                    <tr><td>{{ f|replace("_"," ")|title }}</td><td>{{ v }}</td><td>Image</td></tr>
+                    {% endif %}
+                {% endfor %}
+                {% for f,v in features.items() %}
+                    {% if f in clin %}
+                    <tr><td>{{ f|replace("_"," ")|title }}</td><td>{{ v }}</td><td>Clinical</td></tr>
+                    {% endif %}
+                {% endfor %}
+            </table>
+        </div>
+
+        <div class="disclaimer">
+            ⚠️ <strong>Note:</strong> Automated screening only. Confirm results with a licensed ophthalmologist.
+        </div>
+
+        <div class="footer">
+            <p>Report generated: {{ created_at }}</p>
+            <p>Confidential | DR Screening System</p>
+        </div>
+    </div>
+</div>
+</body>
+</html>

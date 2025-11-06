@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>All Patient Assessments</h2>
+
+    <form method="GET" action="{{ url_for('doctor_dashboard') }}" class="search-form">
+        <input type="text" name="q" placeholder="Search by patient, prediction, or date..." value="{{ q or '' }}">
+        <select name="order" style="padding: 0.8rem; border-radius: 8px;">
+            <option value="desc" {% if order == 'desc' %}selected{% endif %}>Sort: High Risk First</option>
+            <option value="asc" {% if order == 'asc' %}selected{% endif %}>Sort: Low Risk First</option>
+        </select>
+        <button type="submit" class="btn">Search</button>
+        <a href="{{ url_for('doctor_bulk_home') }}" class="btn btn-success">Bulk Upload</a>
+    </form>
+
+    {% if reports %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Patient</th>
+                    <th>Assigned Doctor</th>
+                    <th>Created (IST)</th>
+                    <th>Probability</th>
+                    <th>Prediction</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                    <tr>
+                        <td>{{ r.patient_name }}</td>
+                        <td>{{ r.doctor_name }}</td>
+                        <td>{{ r.created_str }}</td>
+                        <td>{{ "%.3f"|format(r.probability) }}</td>
+                        <td>
+                            {% if r.prediction == 1 %}
+                                <span style="color: var(--danger); font-weight: 600;">DR Present</span>
+                            {% else %}
+                                <span style="color: var(--success); font-weight: 600;">No DR</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('download_report_pdf', report_id=r.id_str) }}" class="btn" style="padding: 0.5rem 1rem; font-size: 0.9rem;">PDF</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="color: var(--text-secondary); margin-top: 1rem;">No assessments found in the system.</p>
+    {% endif %}
+</div>
+{% endblock %}

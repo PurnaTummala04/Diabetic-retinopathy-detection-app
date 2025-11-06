@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>DR Assessment Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            color: #333;
+        }
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #3498db;
+            background-color: #f8f9fa;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        table th {
+            background-color: #3498db;
+            color: white;
+            padding: 10px;
+            text-align: left;
+            font-weight: bold;
+        }
+        table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
+        table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .prediction-box {
+            background-color: #e8f4f8;
+            border: 2px solid #3498db;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            text-align: center;
+        }
+        .prediction-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .prediction-label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .high-risk {
+            background-color: #ffe8e8;
+            border-color: #e74c3c;
+            color: #c0392b;
+        }
+        .low-risk {
+            background-color: #e8f8e8;
+            border-color: #27ae60;
+            color: #1e8449;
+        }
+        .info-row {
+            display: flex;
+            margin: 8px 0;
+        }
+        .info-label {
+            font-weight: bold;
+            width: 150px;
+            color: #2c3e50;
+        }
+        .info-value {
+            flex: 1;
+            color: #555;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+        }
+        .disclaimer {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 15px 0;
+            font-size: 12px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Diabetic Retinopathy Assessment Report</h1>
+        <p style="margin: 5px 0;">Automated Screening System</p>
+    </div>
+
+    <!-- Patient Information -->
+    <div class="section">
+        <div class="section-title">Patient Information</div>
+        <div class="info-row">
+            <div class="info-label">Name:</div>
+            <div class="info-value">{{ patient_name }}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Username:</div>
+            <div class="info-value">{{ patient_username }}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Assessment Date:</div>
+            <div class="info-value">{{ created_at }}</div>
+        </div>
+        {% if doctor_name != "Not assigned" %}
+        <div class="info-row">
+            <div class="info-label">Doctor:</div>
+            <div class="info-value">{{ doctor_name }} ({{ doctor_username }})</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Ensemble Prediction Result -->
+    <div class="section">
+        <div class="section-title">Final Prediction Result (Ensemble Based)</div>
+        
+        {% if prediction == 1 %}
+            <div class="prediction-box high-risk">
+                <div class="prediction-label">ENSEMBLE DECISION (Threshold: 0.371)</div>
+                <div class="prediction-value">POSITIVE (DR Detected)</div>
+                <div class="prediction-label">Ensemble Probability: {{ "%.4f"|format(probability) }}</div>
+                <div class="prediction-label">Decision: {{ "%.1f"|format(probability * 100) }}% >= 37.1% → POSITIVE</div>
+            </div>
+        {% else %}
+            <div class="prediction-box low-risk">
+                <div class="prediction-label">ENSEMBLE DECISION (Threshold: 0.371)</div>
+                <div class="prediction-value">NEGATIVE (No DR)</div>
+                <div class="prediction-label">Ensemble Probability: {{ "%.4f"|format(probability) }}</div>
+                <div class="prediction-label">Decision: {{ "%.1f"|format(probability * 100) }}% < 37.1% → NEGATIVE</div>
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Individual Model Probabilities -->
+    <div class="section">
+        <div class="section-title">Individual Model Probabilities</div>
+        <table>
+            <tr>
+                <th>Model</th>
+                <th>Probability</th>
+                <th>Percentage</th>
+            </tr>
+            {% if per_model_details and per_model_details|length > 0 %}
+                {% for pm in per_model_details %}
+                <tr>
+                    <td><strong>{{ pm.name }}</strong></td>
+                    <td><strong>{{ "%.4f"|format(pm.probability) }}</strong></td>
+                    <td>{{ "%.1f"|format(pm.probability * 100) }}%</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="3">Per-model details unavailable.</td>
+                </tr>
+            {% endif %}
+        </table>
+    </div>
+
+    <!-- Results Summary Table -->
+    <div class="section">
+        <div class="section-title">Results Summary</div>
+        <table>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+            </tr>
+            <tr>
+                <td>Ensemble Average Probability</td>
+                <td><strong>{{ "%.4f"|format(probability) }}</strong></td>
+            </tr>
+            <tr>
+                <td>Ensemble Threshold</td>
+                <td>{{ "%.4f"|format(threshold) }}</td>
+            </tr>
+            <tr>
+                <td>Ensemble Balanced Accuracy</td>
+                <td>{{ "%.4f"|format(ensemble_balanced_accuracy) }}</td>
+            </tr>
+            <tr>
+                <td>Final Classification</td>
+                <td>
+                    {% if prediction == 1 %}
+                        <strong style="color: #c0392b;">POSITIVE - DR Detected</strong>
+                    {% else %}
+                        <strong style="color: #27ae60;">NEGATIVE - No DR Detected</strong>
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- Input Features -->
+    <div class="section">
+        <div class="section-title">Clinical Features Provided</div>
+        <table>
+            <tr>
+                <th>Feature</th>
+                <th>Value</th>
+                <th>Category</th>
+            </tr>
+            {% set image_features = ["exudates_count", "hemorrhages_count", "microaneurysms_count", "vessel_tortuosity", "macular_thickness"] %}
+            {% set clinical_features = ["fasting_glucose", "hba1c", "diabetes_duration"] %}
+            
+            <!-- Image Features -->
+            {% for feature, value in features.items() %}
+                {% if feature in image_features %}
+                <tr>
+                    <td>{{ feature|replace("_", " ")|title }}</td>
+                    <td>{{ value }}</td>
+                    <td>Image Feature</td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+            
+            <!-- Clinical Features -->
+            {% for feature, value in features.items() %}
+                {% if feature in clinical_features %}
+                <tr>
+                    <td>{{ feature|replace("_", " ")|title }}</td>
+                    <td>{{ value }}</td>
+                    <td>Clinical Feature</td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- Model Information -->
+    <div class="section">
+        <div class="section-title">Model Information</div>
+        <div class="info-row">
+            <div class="info-label">Ensemble Model:</div>
+            <div class="info-value">{{ model_name }}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Ensemble Method:</div>
+            <div class="info-value">Average Probability of Multiple Models (XGBoost, LightGBM, CatBoost)</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Decision Threshold:</div>
+            <div class="info-value">0.371 (37.1%)</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Ensemble Accuracy:</div>
+            <div class="info-value">{{ "%.4f"|format(ensemble_balanced_accuracy) }}</div>
+        </div>
+    </div>
+
+    <!-- Disclaimer -->
+    <div class="disclaimer">
+        <strong>⚠️ Medical Disclaimer:</strong>
+        This automated assessment is a screening tool only and should NOT be used for definitive diagnosis. 
+        All results must be reviewed and confirmed by a qualified ophthalmologist or medical professional. 
+        This system is designed to assist clinical decision-making, not replace professional medical judgment.
+        The decision threshold of 0.371 has been configured for this system.
+    </div>
+
+    <div class="footer">
+        <p>Diabetic Retinopathy Screening System | Report Generated: {{ created_at }}</p>
+        <p>This report contains confidential medical information intended only for the patient and authorized healthcare providers.</p>
+    </div>
+</body>
+</html>

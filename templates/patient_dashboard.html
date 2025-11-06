@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>My Assessments</h2>
+
+    <form method="GET" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+        <input type="text" name="q" placeholder="Search..." value="{{ q }}" style="flex: 1; min-width: 250px;">
+        <button type="submit" class="btn btn-primary">Search</button>
+        <a href="{{ url_for('new_assessment') }}" class="btn btn-success">New Assessment</a>
+    </form>
+
+    {% if reports %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Doctor</th>
+                    <th>Created (IST)</th>
+                    <th>Probability</th>
+                    <th>Prediction</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                    <tr>
+                        <td>{{ r.doctor_name }}</td>
+                        <td>{{ r.created_str }}</td>
+                        <td>{{ "%.3f"|format(r.probability) }}</td>
+                        <td>
+                            {% if r.prediction == 1 %}
+                                <span style="color: var(--danger); font-weight: 600;">DR Present</span>
+                            {% else %}
+                                <span style="color: var(--success); font-weight: 600;">No DR</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('download_report_pdf', report_id=r.id_str) }}" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">PDF</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="text-align: center; padding: 2rem; color: var(--text-secondary);">No assessments found. <a href="{{ url_for('new_assessment') }}" style="color: var(--primary);">Create one</a></p>
+    {% endif %}
+</div>
+{% endblock %}
