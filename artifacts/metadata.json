@@ -1,0 +1,33 @@
+{
+  "timestamp": "2025-11-05 13:52:07",
+  "features": [
+    "exudates_count",
+    "hemorrhages_count",
+    "microaneurysms_count",
+    "vessel_tortuosity",
+    "macular_thickness",
+    "fasting_glucose",
+    "hba1c",
+    "diabetes_duration"
+  ],
+  "threshold_grid": [
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6
+  ],
+  "ensemble_threshold": 0.5,
+  "model_order": [
+    "XGBoost",
+    "LightGBM",
+    "CatBoost"
+  ],
+  "model_filenames": {
+    "XGBoost": "XGBoost.pkl",
+    "LightGBM": "LightGBM.pkl",
+    "CatBoost": "CatBoost.pkl"
+  },
+  "random_state": 42,
+  "data_path": "E:\\DR full stack\\dataset.csv"
+}
