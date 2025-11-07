@@ -935,7 +935,8 @@ def doctor_bulk_view(bid):
 @login_required
 def doctor_bulk_download(bid):
     if current_user.role not in ("doctor", "admin"):
-        abort(4Code 403)
+        # ✅ --- FIX: Corrected typo ---
+        abort(403)
     
     try:
         batch_id = ObjectId(bid)
@@ -1008,7 +1009,9 @@ def admin_dashboard():
 @login_required
 def admin_delete_user(uid):
     if not is_admin():
-        abort(403)    
+        # ✅ --- FIX: Corrected typo ---
+        abort(403)
+    
     try:
         user_id = ObjectId(uid)
     except Exception:
