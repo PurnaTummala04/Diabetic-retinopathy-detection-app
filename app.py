@@ -81,7 +81,6 @@ def generate_presigned_url(bucket_name, object_name, expiration=3600):
 # ============================================
 # MONGODB CONNECTION
 # ============================================
-# ... (This section is unchanged) ...
 def _uri_has_placeholders(uri: str) -> bool:
     u = (uri or "").lower()
     return any(tok in u for tok in ["<", ">", "$", "?", "&"])
@@ -112,7 +111,7 @@ def connect_mongo():
         app.logger.warning(f"Falling back to local MongoDB: {local_uri}")
         return client, db
     except Exception as e:
-        tried.append(f"mongomock -> {e}")
+        tried.append(f"{local_uri} -> {e}")
     
     try:
         import mongomock
@@ -142,14 +141,11 @@ except Exception as e:
 # ============================================
 # PATHS AND DIRECTORIES (NO LONGER USED FOR EXPORTS)
 # ============================================
-# We no longer need ARTIFACT_DIR or MODEL_DIR as paths
-# We will load models from R2 directly
 ENSEMBLE_THRESHOLD_CUSTOM = 0.371
 
 # ============================================
 # SEED ADMIN USER
 # ============================================
-# ... (This section is unchanged) ...
 def seed_admin():
     admin_user = os.environ.get("ADMIN_USERNAME", "admin").strip().lower()
     admin_pass = os.environ.get("ADMIN_PASSWORD", "a")
@@ -184,7 +180,6 @@ seed_admin()
 # ============================================
 # AUTHENTICATION
 # ============================================
-# ... (This section is unchanged) ...
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
@@ -211,7 +206,6 @@ def is_admin():
 # ============================================
 # TIMEZONE HELPERS (IST)
 # ============================================
-# ... (This section is unchanged) ...
 IST = ZoneInfo("Asia/Kolkata")
 UTC = ZoneInfo("UTC")
 
@@ -260,21 +254,21 @@ def load_artifacts_from_r2():
             app.logger.error(f"Failed to load artifact '{key}' from R2: {e}")
             return None
 
-    # Load metadata.json
+    # Load metadata.json from artifacts/ folder
     meta_obj = load_s3_file("artifacts/metadata.json")
     if meta_obj is None:
         app.logger.error("metadata.json not found in R2. App will not function.")
         return
     meta = json.load(meta_obj)
 
-    # Load metrics.json
+    # Load metrics.json from artifacts/ folder
     metrics_obj = load_s3_file("artifacts/metrics.json")
     if metrics_obj is None:
         app.logger.warning("metrics.json not found in R2.")
     else:
         METRICS_ALL = json.load(metrics_obj)
 
-    # Load scaler.pkl
+    # Load scaler.pkl from artifacts/ folder
     scaler_obj = load_s3_file("artifacts/scaler.pkl")
     if scaler_obj is None:
         app.logger.error("scaler.pkl not found in R2. App will not function.")
@@ -302,7 +296,7 @@ def load_artifacts_from_r2():
             PER_MODEL_BALACC[name] = 0.0
     ENSEMBLE_BALACC = float(ensemble.get("balanced_accuracy", 0.0))
 
-    # Load all models from R2
+    # Load all models from R2 (assuming they are in the root)
     MODELS = {}
     for name in MODEL_ORDER:
         fname = MODEL_FILES.get(name)
@@ -310,7 +304,8 @@ def load_artifacts_from_r2():
             app.logger.error(f"No filename for model '{name}' in metadata.")
             continue
         
-        model_key = f"{fname}" # Assumes models are at the root of the bucket
+        # Models are in the root, artifacts are in artifacts/
+        model_key = f"{fname}" 
         model_obj = load_s3_file(model_key)
         
         if model_obj:
@@ -371,7 +366,6 @@ load_artifacts_from_r2()
 # ============================================
 # ROUTES
 # ============================================
-# ... (index, register, login, logout, patient_dashboard are unchanged) ...
 @app.route("/")
 def index():
     return render_template("index.html", model_name=ENSEMBLE_LABEL)
@@ -482,7 +476,6 @@ def new_assessment():
     doctors = list(users_col.find({"role": "doctor"}).sort("name", ASCENDING))
     
     if request.method == "POST":
-        # ... (Data validation is unchanged) ...
         try:
             feature_values = {
                 "exudates_count": int(request.form["exudates_count"]),
@@ -505,7 +498,7 @@ def new_assessment():
             out = compute_ensemble_outputs(feature_values)
         except Exception as e:
             app.logger.exception(e)
-            flash("Model artifacts missing. Train the model first.", "danger")
+            flash("Model artifacts missing. Check R2 connection.", "danger")
             return redirect(url_for("patient_dashboard"))
         
         report_doc = {
@@ -722,7 +715,6 @@ def doctor_bulk_upload():
     if current_user.role not in ("doctor", "admin"):
         abort(403)
     
-    # ... (File checking logic is unchanged) ...
     f = request.files.get("file")
     if not f or f.filename == "":
         flash("Please choose a CSV file.", "danger")
@@ -740,7 +732,6 @@ def doctor_bulk_upload():
         flash("Failed to read CSV. Check the file format.", "danger")
         return redirect(url_for("doctor_bulk_home"))
     
-    # ... (Data parsing logic is unchanged) ...
     base_features = [
         "exudates_count", "hemorrhages_count", "microaneurysms_count",
         "vessel_tortuosity", "macular_thickness", "fasting_glucose",
@@ -774,7 +765,6 @@ def doctor_bulk_upload():
     out_rows = []
     rows_docs = []
     
-    # ... (Row processing logic is unchanged) ...
     for idx, row in df.iterrows():
         feature_values = {k: float(row[k]) for k in base_features}
         
@@ -945,7 +935,7 @@ def doctor_bulk_view(bid):
 @login_required
 def doctor_bulk_download(bid):
     if current_user.role not in ("doctor", "admin"):
-        abort(403)
+        abort(4Code 403)
     
     try:
         batch_id = ObjectId(bid)
@@ -1018,9 +1008,7 @@ def admin_dashboard():
 @login_required
 def admin_delete_user(uid):
     if not is_admin():
-        abort(403)
-    
-    # ... (Most logic is unchanged) ...
+        abort(403)    
     try:
         user_id = ObjectId(uid)
     except Exception:
@@ -1115,7 +1103,7 @@ def admin_delete_batch(bid):
     return redirect(url_for("admin_dashboard"))
 
 # ============================================
-# ✅ --- R2 REWRITE: RUNNER ---
+# ✅ --- RWEWRITE: RUNNER ---
 # ============================================
 if __name__ == "__main__":
     # This part is for local development only
