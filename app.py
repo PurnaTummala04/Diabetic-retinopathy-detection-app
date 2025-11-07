@@ -16,8 +16,7 @@ import numpy as np
 from joblib import load
 from xhtml2pdf import pisa
 
-# ✅ --- R2 REWRITE ---
-# Import boto3, the library for cloud storage
+# ✅ --- R2 REWRITE (Still needed for exports) ---
 import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
@@ -35,18 +34,15 @@ MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "dr_app")
 bcrypt = Bcrypt(app)
 
 # ============================================
-# ✅ --- R2 REWRITE: CLIENT SETUP ---
+# ✅ --- R2 REWRITE: CLIENT SETUP (Still needed for exports) ---
 # ============================================
-# We'll get these from Render's environment variables
 S3_ACCOUNT_ID = os.environ.get("S3_ACCOUNT_ID")
 S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
 S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
 
-# This is the special URL for Cloudflare R2
 S3_ENDPOINT_URL = f"https://{S3_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
-# Create the client object to talk to R2
 s3_client = None
 if S3_ACCOUNT_ID and S3_ACCESS_KEY and S3_SECRET_KEY and S3_BUCKET_NAME:
     try:
@@ -56,7 +52,7 @@ if S3_ACCOUNT_ID and S3_ACCESS_KEY and S3_SECRET_KEY and S3_BUCKET_NAME:
             aws_access_key_id=S3_ACCESS_KEY,
             aws_secret_access_key=S3_SECRET_KEY,
             config=Config(signature_version='s3v4'),
-            verify=False  # <--- !! ADD THIS LINE !!
+            verify=False # Fix for SSL Handshake Error
         )
         app.logger.info(f"Connected to R2 Bucket: {S3_BUCKET_NAME}")
     except Exception as e:
@@ -82,6 +78,7 @@ def generate_presigned_url(bucket_name, object_name, expiration=3600):
 # ============================================
 # MONGODB CONNECTION
 # ============================================
+# ... (This section is unchanged) ...
 def _uri_has_placeholders(uri: str) -> bool:
     u = (uri or "").lower()
     return any(tok in u for tok in ["<", ">", "$", "?", "&"])
@@ -140,13 +137,17 @@ except Exception as e:
     app.logger.warning(f"Index creation warning: {e}")
 
 # ============================================
-# PATHS AND DIRECTORIES (NO LONGER USED FOR EXPORTS)
+# ✅ --- HYBRID REWRITE: LOCAL PATHS ---
 # ============================================
+ARTIFACT_DIR = "artifacts"
+MODEL_DIR = "models"
+# We no longer need EXPORT_DIR
 ENSEMBLE_THRESHOLD_CUSTOM = 0.371
 
 # ============================================
 # SEED ADMIN USER
 # ============================================
+# ... (This section is unchanged) ...
 def seed_admin():
     admin_user = os.environ.get("ADMIN_USERNAME", "admin").strip().lower()
     admin_pass = os.environ.get("ADMIN_PASSWORD", "a")
@@ -181,6 +182,7 @@ seed_admin()
 # ============================================
 # AUTHENTICATION
 # ============================================
+# ... (This section is unchanged) ...
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
@@ -207,6 +209,7 @@ def is_admin():
 # ============================================
 # TIMEZONE HELPERS (IST)
 # ============================================
+# ... (This section is unchanged) ...
 IST = ZoneInfo("Asia/Kolkata")
 UTC = ZoneInfo("UTC")
 
@@ -222,7 +225,7 @@ def ist_filter(dt, fmt="%Y-%m-%d %H:%M"):
     return to_ist_str(dt, fmt)
 
 # ============================================
-# ✅ --- R2 REWRITE: ML ARTIFACTS LOADING ---
+# ✅ --- HYBRID REWRITE: LOCAL ML ARTIFACTS LOADING ---
 # ============================================
 SCALER = None
 FEATURES = []
@@ -236,68 +239,61 @@ ENSEMBLE_BALACC = 0.0
 ENSEMBLE_LABEL = ""
 METRICS_ALL = {}
 
-def load_artifacts_from_r2():
+# This is the original function, loading from local disk
+def load_artifacts():
     global SCALER, FEATURES, CLINICAL_FEATURES, MODEL_ORDER, MODEL_FILES, MODELS
     global PER_MODEL_THRESH, PER_MODEL_BALACC, ENSEMBLE_BALACC, ENSEMBLE_LABEL, METRICS_ALL
     
-    if s3_client is None:
-        app.logger.error("R2 Client not initialized. Cannot load artifacts.")
+    meta_path = os.path.join(ARTIFACT_DIR, "metadata.json")
+    scaler_path = os.path.join(ARTIFACT_DIR, "scaler.pkl")
+    metrics_path = os.path.join(ARTIFACT_DIR, "metrics.json")
+    
+    if not os.path.exists(meta_path) or not os.path.exists(scaler_path):
+        app.logger.warning("Artifacts missing. Run train.py first.")
         return
-
-    def load_s3_file(key):
-        """Helper to download a file from R2 into memory."""
-        try:
-            file_obj = io.BytesIO()
-            s3_client.download_fileobj(S3_BUCKET_NAME, key, file_obj)
-            file_obj.seek(0)
-            return file_obj
-        except Exception as e:
-            app.logger.error(f"Failed to load artifact '{key}' from R2: {e}")
-            return None
-
-    # Load metadata.json from artifacts/ folder
-    meta_obj = load_s3_file("artifacts/metadata.json")
-    if meta_obj is None:
-        app.logger.error("metadata.json not found in R2. App will not function.")
-        return
-    meta = json.load(meta_obj)
-
-    # Load metrics.json from artifacts/ folder
-    metrics_obj = load_s3_file("artifacts/metrics.json")
-    if metrics_obj is None:
-        app.logger.warning("metrics.json not found in R2.")
-    else:
-        METRICS_ALL = json.load(metrics_obj)
-
-    # Load scaler.pkl from artifacts/ folder
-    scaler_obj = load_s3_file("artifacts/scaler.pkl")
-    if scaler_obj is None:
-        app.logger.error("scaler.pkl not found in R2. App will not function.")
-        return
-    SCALER = load(scaler_obj)
-
-    # Get feature and model info from metadata
+    
+    with open(meta_path, "r") as f:
+        meta = json.load(f)
+    
     FEATURES = meta.get("features", [
         "exudates_count", "hemorrhages_count", "microaneurysms_count",
         "vessel_tortuosity", "macular_thickness", "fasting_glucose",
         "hba1c", "diabetes_duration"
     ])
+    
     MODEL_FILES = meta.get("model_filenames", {})
-    MODEL_ORDER = meta.get("model_order", list(MODEL_FILES.keys()))
-
-    # Load metrics from metrics.json
-    per_model = METRICS_ALL.get("per_model", {})
-    ensemble = METRICS_ALL.get("ensemble", {})
-    for name in MODEL_ORDER:
-        if name in per_model:
-            PER_MODEL_THRESH[name] = float(per_model[name].get("best_threshold", 0.371))
-            PER_MODEL_BALACC[name] = float(per_model[name].get("balanced_accuracy", 0.0))
-        else:
+    if MODEL_FILES:
+        MODEL_ORDER = meta.get("model_order", list(MODEL_FILES.keys()))
+    else:
+        MODEL_ORDER = []
+    
+    try:
+        with open(metrics_path, "r") as f:
+            METRICS_ALL = json.load(f)
+            per_model = METRICS_ALL.get("per_model", {})
+            ensemble = METRICS_ALL.get("ensemble", {})
+            
+            for name in MODEL_ORDER:
+                if name in per_model:
+                    PER_MODEL_THRESH[name] = float(per_model[name].get("best_threshold", 0.371))
+                    PER_MODEL_BALACC[name] = float(per_model[name].get("balanced_accuracy", 0.0))
+                else:
+                    PER_MODEL_THRESH[name] = 0.371
+                    PER_MODEL_BALACC[name] = 0.0
+            
+            ENSEMBLE_BALACC = float(ensemble.get("balanced_accuracy", 0.0))
+    except Exception as e:
+        app.logger.warning(f"Could not load metrics: {e}")
+        for name in MODEL_ORDER:
             PER_MODEL_THRESH[name] = 0.371
             PER_MODEL_BALACC[name] = 0.0
-    ENSEMBLE_BALACC = float(ensemble.get("balanced_accuracy", 0.0))
-
-    # Load all models from R2 (assuming they are in the root)
+    
+    try:
+        SCALER = load(scaler_path)
+    except Exception as e:
+        app.logger.error(f"Failed to load scaler: {e}")
+        SCALER = None
+    
     MODELS = {}
     for name in MODEL_ORDER:
         fname = MODEL_FILES.get(name)
@@ -305,18 +301,16 @@ def load_artifacts_from_r2():
             app.logger.error(f"No filename for model '{name}' in metadata.")
             continue
         
-        # Models are in the root, artifacts are in artifacts/
-        model_key = f"{fname}" 
-        model_obj = load_s3_file(model_key)
+        path = os.path.join(MODEL_DIR, fname)
+        if not os.path.exists(path):
+            app.logger.error(f"Missing model file: {path}")
+            continue
         
-        if model_obj:
-            try:
-                MODELS[name] = load(model_obj)
-                app.logger.info(f"Successfully loaded model '{name}' from R2.")
-            except Exception as e:
-                app.logger.error(f"Failed to load model {name} from R2 object: {e}")
-        else:
-            app.logger.error(f"Missing model file in R2: {model_key}")
+        try:
+            MODELS[name] = load(path)
+            app.logger.info(f"Successfully loaded model '{name}' from local disk.")
+        except Exception as e:
+            app.logger.error(f"Failed to load model {name} at {path}: {e}")
     
     ENSEMBLE_LABEL = f"Ensemble(mean) of {len(MODELS)} model{'s' if len(MODELS) != 1 else ''}"
 
@@ -362,11 +356,12 @@ def compute_ensemble_outputs(feature_dict: dict):
     }
 
 # Load artifacts on app startup
-load_artifacts_from_r2()
+load_artifacts() # <-- ✅ HYBRID REWRITE: Calling the local load function
 
 # ============================================
 # ROUTES
 # ============================================
+# ... (index, register, login, logout, patient_dashboard are unchanged) ...
 @app.route("/")
 def index():
     return render_template("index.html", model_name=ENSEMBLE_LABEL)
@@ -466,7 +461,7 @@ def patient_dashboard():
     return render_template("patient_dashboard.html", user=current_user, reports=reports, q=q, model_name=ENSEMBLE_LABEL)
 
 # ============================================
-# ✅ --- R2 REWRITE: new_assessment ---
+# ✅ --- HYBRID REWRITE: new_assessment (Keeps R2 for PDF) ---
 # ============================================
 @app.route("/assessment/new", methods=["GET", "POST"])
 @login_required
@@ -499,7 +494,7 @@ def new_assessment():
             out = compute_ensemble_outputs(feature_values)
         except Exception as e:
             app.logger.exception(e)
-            flash("Model artifacts missing. Check R2 connection.", "danger")
+            flash("Model artifacts missing. Check local files.", "danger")
             return redirect(url_for("patient_dashboard"))
         
         report_doc = {
@@ -544,14 +539,12 @@ def new_assessment():
         
         pdf_io.seek(0)
         
-        # --- R2 REWRITE: Upload PDF to R2 instead of send_file() ---
+        # --- R2 REWRITE: Upload PDF to R2 ---
         if s3_client:
             try:
-                # We save the report doc first to get its _id
                 res = reports_col.insert_one(report_doc)
                 report_id = res.inserted_id
                 
-                # Use the _id as the filename in R2
                 object_name = f"reports/DR_Assessment_{report_id}.pdf"
                 
                 s3_client.upload_fileobj(
@@ -561,17 +554,15 @@ def new_assessment():
                     ExtraArgs={'ContentType': 'application/pdf'}
                 )
                 
-                # Add the R2 object key to our report doc
                 reports_col.update_one(
                     {"_id": report_id},
                     {"$set": {"r2_object_key": object_name}}
                 )
                 
-                # Generate a download link and send the user there
                 url = generate_presigned_url(S3_BUCKET_NAME, object_name)
                 if url:
                     flash("Assessment created. Your download will begin.", "success")
-                    return redirect(url) # Auto-download
+                    return redirect(url) 
                 else:
                     flash("Assessment created, but download link failed.", "warning")
                     return redirect(url_for("patient_dashboard"))
@@ -587,12 +578,11 @@ def new_assessment():
     return render_template("report_form.html", doctors=doctors, model_name=ENSEMBLE_LABEL)
 
 # ============================================
-# ✅ --- R2 REWRITE: download_report_pdf ---
+# ✅ --- HYBRID REWRITE: download_report_pdf (Keeps R2) ---
 # ============================================
 @app.route("/report/<report_id>/download")
 @login_required
 def download_report_pdf(report_id):
-    # --- Check Permissions (unchanged) ---
     if not is_admin() and current_user.role != "doctor":
         try:
             report_check = reports_col.find_one(
@@ -624,7 +614,6 @@ def download_report_pdf(report_id):
     url = generate_presigned_url(S3_BUCKET_NAME, r2_key)
     
     if url:
-        # Redirect user to the temporary download URL
         return redirect(url)
     else:
         flash("Could not generate a download link for the PDF.", "danger")
@@ -708,7 +697,7 @@ def doctor_bulk_home():
     return render_template("doctor_bulk.html", batches=batches, q=q, model_name=ENSEMBLE_LABEL)
 
 # ============================================
-# ✅ --- R2 REWRITE: doctor_bulk_upload ---
+# ✅ --- HYBRID REWRITE: doctor_bulk_upload (Keeps R2 for XLSX) ---
 # ============================================
 @app.route("/doctor/bulk/upload", methods=["POST"])
 @login_required
@@ -760,7 +749,7 @@ def doctor_bulk_upload():
     
     batch_id = ObjectId()
     
-    # --- R2 REWRITE: This path is now an R2 key, not a local file path ---
+    # --- R2 REWRITE: This is the R2 key ---
     r2_object_key = f"exports/bulk_{batch_id}.xlsx"
     
     out_rows = []
@@ -798,7 +787,7 @@ def doctor_bulk_upload():
             "ensemble_pred": out["final_pred"],
         })
     
-    # --- R2 REWRITE: Upload XLSX to R2 instead of saving locally ---
+    # --- R2 REWRITE: Upload XLSX to R2 ---
     if s3_client is None:
         flash("File storage is not configured. Cannot save batch.", "danger")
         return redirect(url_for("doctor_bulk_home"))
@@ -841,7 +830,7 @@ def doctor_bulk_upload():
     url = generate_presigned_url(S3_BUCKET_NAME, r2_object_key)
     if url:
         flash("Batch processed. Your download will begin.", "success")
-        return redirect(url) # Auto-download
+        return redirect(url) 
     else:
         flash("Batch processed, but download link failed.", "warning")
         return redirect(url_for("doctor_bulk_home"))
@@ -930,7 +919,7 @@ def doctor_bulk_view(bid):
     )
 
 # ============================================
-# ✅ --- R2 REWRITE: doctor_bulk_download ---
+# ✅ --- HYBRID REWRITE: doctor_bulk_download (Keeps R2) ---
 # ============================================
 @app.route("/doctor/bulk/<bid>/download", methods=["GET"])
 @login_required
@@ -965,7 +954,6 @@ def doctor_bulk_download(bid):
     url = generate_presigned_url(S3_BUCKET_NAME, r2_key)
     
     if url:
-        # Redirect user to the temporary download URL
         return redirect(url)
     else:
         flash("Could not generate a download link for the file.", "danger")
@@ -1004,7 +992,7 @@ def admin_dashboard():
                           model_name="Admin")
 
 # ============================================
-# ✅ --- R2 REWRITE: admin_delete_user ---
+# ✅ --- HYBRID REWRITE: admin_delete_user (Keeps R2) ---
 # ============================================
 @app.route("/admin/user/<uid>/delete", methods=["POST"])
 @login_required
@@ -1073,7 +1061,7 @@ def admin_delete_user(uid):
     return redirect(url_for("admin_dashboard"))
 
 # ============================================
-# ✅ --- R2 REWRITE: admin_delete_batch ---
+# ✅ --- HYBRID REWRITE: admin_delete_batch (Keeps R2) ---
 # ============================================
 @app.route("/admin/batch/<bid>/delete", methods=["POST"])
 @login_required
@@ -1107,10 +1095,8 @@ def admin_delete_batch(bid):
     return redirect(url_for("admin_dashboard"))
 
 # ============================================
-# ✅ --- RWEWRITE: RUNNER ---
+# ✅ --- RUNNER (Unchanged) ---
 # ============================================
 if __name__ == "__main__":
-    # This part is for local development only
-    # On Render, gunicorn will run the 'app' object directly
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=True)
