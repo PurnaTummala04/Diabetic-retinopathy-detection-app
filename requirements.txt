@@ -1,20 +1,17 @@
-Flask
+﻿Flask
 Flask-Bcrypt
 Flask-Login
 pymongo
 dnspython
 mongomock
-gridfs-fuse
 pandas
 numpy
 joblib
 xhtml2pdf
 openpyxl
-
 scikit-learn
 xgboost
 lightgbm
 catboost
-
-# Server for Render
+# The web server that Render will use 
 gunicorn
