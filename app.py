@@ -27,8 +27,8 @@ import gridfs
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/dr_app")
-MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "dr_app")
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/dr-app")
+MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "dr-app")
 
 bcrypt = Bcrypt(app)
 
