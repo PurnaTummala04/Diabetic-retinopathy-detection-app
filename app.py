@@ -55,7 +55,8 @@ if S3_ACCOUNT_ID and S3_ACCESS_KEY and S3_SECRET_KEY and S3_BUCKET_NAME:
             endpoint_url=S3_ENDPOINT_URL,
             aws_access_key_id=S3_ACCESS_KEY,
             aws_secret_access_key=S3_SECRET_KEY,
-            config=Config(signature_version='s3v4')
+            config=Config(signature_version='s3v4'),
+            verify=False  # <--- !! ADD THIS LINE !!
         )
         app.logger.info(f"Connected to R2 Bucket: {S3_BUCKET_NAME}")
     except Exception as e:
