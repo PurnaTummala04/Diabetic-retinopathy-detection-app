@@ -16,11 +16,10 @@ import numpy as np
 from joblib import load
 from xhtml2pdf import pisa
 
-# ✅ --- R2 REWRITE (Still needed for exports) ---
-import boto3
-from botocore.client import Config
-from botocore.exceptions import ClientError
-# --- END R2 REWRITE ---
+# ✅ --- GridFS REWRITE ---
+# Import GridFS for storing files in MongoDB
+import gridfs
+# --- END GridFS REWRITE ---
 
 # ============================================
 # FLASK CONFIGURATION
@@ -34,56 +33,19 @@ MONGO_DB_NAME = os.environ.get("MONGO_DB_NAME", "dr_app")
 bcrypt = Bcrypt(app)
 
 # ============================================
-# ✅ --- R2 REWRITE: CLIENT SETUP (Still needed for exports) ---
-# ============================================
-S3_ACCOUNT_ID = os.environ.get("S3_ACCOUNT_ID")
-S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY")
-S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY")
-S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
-
-S3_ENDPOINT_URL = f"https://{S3_ACCOUNT_ID}.r2.cloudflarestorage.com"
-
-s3_client = None
-if S3_ACCOUNT_ID and S3_ACCESS_KEY and S3_SECRET_KEY and S3_BUCKET_NAME:
-    try:
-        s3_client = boto3.client(
-            's3',
-            endpoint_url=S3_ENDPOINT_URL,
-            aws_access_key_id=S3_ACCESS_KEY,
-            aws_secret_access_key=S3_SECRET_KEY,
-            config=Config(signature_version='s3v4'),
-            verify=False # Fix for SSL Handshake Error
-        )
-        app.logger.info(f"Connected to R2 Bucket: {S3_BUCKET_NAME}")
-    except Exception as e:
-        app.logger.error(f"Failed to connect to R2: {e}")
-else:
-    app.logger.warning("R2/S3 environment variables not set. File operations will fail.")
-
-def generate_presigned_url(bucket_name, object_name, expiration=3600):
-    """Generate a presigned URL to share an S3 object."""
-    if s3_client is None:
-        return None
-    try:
-        response = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': bucket_name, 'Key': object_name},
-            ExpiresIn=expiration
-        )
-    except ClientError as e:
-        app.logger.error(f"Failed to generate presigned URL: {e}")
-        return None
-    return response
-
-# ============================================
 # MONGODB CONNECTION
 # ============================================
-# ... (This section is unchanged) ...
 def _uri_has_placeholders(uri: str) -> bool:
     u = (uri or "").lower()
     return any(tok in u for tok in ["<", ">", "$", "?", "&"])
 
+# Create global variables for the db and file storage
+client = None
+db = None
+fs = None
+
 def connect_mongo():
+    global client, db, fs
     tried = []
     primary_uri = MONGO_URI
     if not _uri_has_placeholders(primary_uri):
@@ -96,6 +58,12 @@ def connect_mongo():
                     db = client[MONGO_DB_NAME]
             except Exception:
                 db = client[MONGO_DB_NAME]
+            
+            # ✅ --- GridFS REWRITE ---
+            # Initialize GridFS with our database
+            fs = gridfs.GridFS(db)
+            # --- END GridFS REWRITE ---
+            
             app.logger.info(f"Connected to MongoDB: {primary_uri}")
             return client, db
         except Exception as e:
@@ -106,6 +74,11 @@ def connect_mongo():
         client = MongoClient(local_uri, serverSelectionTimeoutMS=8000)
         client.admin.command("ping")
         db = client[MONGO_DB_NAME]
+        
+        # ✅ --- GridFS REWRITE ---
+        fs = gridfs.GridFS(db)
+        # --- END GridFS REWRITE ---
+        
         app.logger.warning(f"Falling back to local MongoDB: {local_uri}")
         return client, db
     except Exception as e:
@@ -115,6 +88,11 @@ def connect_mongo():
         import mongomock
         client = mongomock.MongoClient()
         db = client[MONGO_DB_NAME]
+        
+        # ✅ --- GridFS REWRITE ---
+        fs = gridfs.GridFS(db)
+        # --- END GridFS REWRITE ---
+        
         app.logger.warning("Using in-memory MongoDB via mongomock (data will NOT persist).")
         return client, db
     except Exception as e:
@@ -122,7 +100,7 @@ def connect_mongo():
     
     raise RuntimeError("Could not connect to MongoDB. Please set a valid MONGO_URI or run MongoDB locally.")
 
-client, db = connect_mongo()
+connect_mongo() # Run the connection function
 users_col = db["users"]
 reports_col = db["reports"]
 batches_col = db["batches"]
@@ -137,11 +115,10 @@ except Exception as e:
     app.logger.warning(f"Index creation warning: {e}")
 
 # ============================================
-# ✅ --- HYBRID REWRITE: LOCAL PATHS ---
+# LOCAL PATHS FOR MODELS
 # ============================================
 ARTIFACT_DIR = "artifacts"
 MODEL_DIR = "models"
-# We no longer need EXPORT_DIR
 ENSEMBLE_THRESHOLD_CUSTOM = 0.371
 
 # ============================================
@@ -225,8 +202,9 @@ def ist_filter(dt, fmt="%Y-%m-%d %H:%M"):
     return to_ist_str(dt, fmt)
 
 # ============================================
-# ✅ --- HYBRID REWRITE: LOCAL ML ARTIFACTS LOADING ---
+# LOCAL ML ARTIFACTS LOADING
 # ============================================
+# ... (This section is unchanged) ...
 SCALER = None
 FEATURES = []
 CLINICAL_FEATURES = ["fasting_glucose", "hba1c", "diabetes_duration"]
@@ -239,7 +217,6 @@ ENSEMBLE_BALACC = 0.0
 ENSEMBLE_LABEL = ""
 METRICS_ALL = {}
 
-# This is the original function, loading from local disk
 def load_artifacts():
     global SCALER, FEATURES, CLINICAL_FEATURES, MODEL_ORDER, MODEL_FILES, MODELS
     global PER_MODEL_THRESH, PER_MODEL_BALACC, ENSEMBLE_BALACC, ENSEMBLE_LABEL, METRICS_ALL
@@ -314,7 +291,6 @@ def load_artifacts():
     
     ENSEMBLE_LABEL = f"Ensemble(mean) of {len(MODELS)} model{'s' if len(MODELS) != 1 else ''}"
 
-# --- (This compute_ensemble_outputs function is unchanged) ---
 def compute_ensemble_outputs(feature_dict: dict):
     if SCALER is None or not MODELS:
         raise RuntimeError("Model artifacts not loaded. Check R2 connection.")
@@ -355,8 +331,7 @@ def compute_ensemble_outputs(feature_dict: dict):
         "final_pred": final_pred,
     }
 
-# Load artifacts on app startup
-load_artifacts() # <-- ✅ HYBRID REWRITE: Calling the local load function
+load_artifacts()
 
 # ============================================
 # ROUTES
@@ -461,7 +436,7 @@ def patient_dashboard():
     return render_template("patient_dashboard.html", user=current_user, reports=reports, q=q, model_name=ENSEMBLE_LABEL)
 
 # ============================================
-# ✅ --- HYBRID REWRITE: new_assessment (Keeps R2 for PDF) ---
+# ✅ --- GridFS REWRITE: new_assessment ---
 # ============================================
 @app.route("/assessment/new", methods=["GET", "POST"])
 @login_required
@@ -508,6 +483,7 @@ def new_assessment():
             "ensemble_balanced_accuracy": ENSEMBLE_BALACC,
             "per_model_details": out["per_model"],
             "created_at": datetime.datetime.utcnow(),
+            "gridfs_file_id": None # Placeholder
         }
         
         # --- PDF Generation is the same ---
@@ -539,50 +515,46 @@ def new_assessment():
         
         pdf_io.seek(0)
         
-        # --- R2 REWRITE: Upload PDF to R2 ---
-        if s3_client:
-            try:
-                res = reports_col.insert_one(report_doc)
-                report_id = res.inserted_id
-                
-                object_name = f"reports/DR_Assessment_{report_id}.pdf"
-                
-                s3_client.upload_fileobj(
-                    pdf_io,
-                    S3_BUCKET_NAME,
-                    object_name,
-                    ExtraArgs={'ContentType': 'application/pdf'}
-                )
-                
-                reports_col.update_one(
-                    {"_id": report_id},
-                    {"$set": {"r2_object_key": object_name}}
-                )
-                
-                url = generate_presigned_url(S3_BUCKET_NAME, object_name)
-                if url:
-                    flash("Assessment created. Your download will begin.", "success")
-                    return redirect(url) 
-                else:
-                    flash("Assessment created, but download link failed.", "warning")
-                    return redirect(url_for("patient_dashboard"))
+        # --- GridFS REWRITE: Upload PDF to GridFS ---
+        try:
+            # We save the report doc first to get its _id
+            res = reports_col.insert_one(report_doc)
+            report_id = res.inserted_id
+            
+            # Use the _id as the filename
+            object_name = f"DR_Assessment_{report_id}.pdf"
+            
+            # Upload the PDF data to GridFS
+            file_id = fs.put(
+                pdf_io, 
+                filename=object_name, 
+                contentType="application/pdf"
+            )
+            
+            # Add the GridFS file ID to our report doc
+            reports_col.update_one(
+                {"_id": report_id},
+                {"$set": {"gridfs_file_id": file_id}}
+            )
+            
+            flash("Assessment created successfully.", "success")
+            # Redirect to the download function to start the download
+            return redirect(url_for('download_report_pdf', report_id=str(report_id)))
 
-            except Exception as e:
-                app.logger.error(f"Failed to upload PDF to R2: {e}")
-                flash("Assessment created, but PDF upload failed.", "danger")
-                return redirect(url_for("patient_dashboard"))
-        else:
-            flash("R2/S3 not configured. Cannot save PDF.", "danger")
+        except Exception as e:
+            app.logger.error(f"Failed to upload PDF to GridFS: {e}")
+            flash("Assessment created, but PDF save failed.", "danger")
             return redirect(url_for("patient_dashboard"))
     
     return render_template("report_form.html", doctors=doctors, model_name=ENSEMBLE_LABEL)
 
 # ============================================
-# ✅ --- HYBRID REWRITE: download_report_pdf (Keeps R2) ---
+# ✅ --- GridFS REWRITE: download_report_pdf ---
 # ============================================
 @app.route("/report/<report_id>/download")
 @login_required
 def download_report_pdf(report_id):
+    # --- Check Permissions (unchanged) ---
     if not is_admin() and current_user.role != "doctor":
         try:
             report_check = reports_col.find_one(
@@ -601,22 +573,23 @@ def download_report_pdf(report_id):
     except Exception:
         abort(404)
 
-    # --- R2 REWRITE: Get R2 key and generate a download link ---
-    r2_key = report_doc.get("r2_object_key")
-    if not r2_key:
+    # --- GridFS REWRITE: Get file from GridFS ---
+    file_id = report_doc.get("gridfs_file_id")
+    if not file_id:
         flash("PDF not found for this report. It may be an old record.", "danger")
         return redirect(request.referrer or url_for("patient_dashboard"))
 
-    if s3_client is None:
-        flash("File storage is not configured.", "danger")
-        return redirect(request.referrer or url_for("patient_dashboard"))
-
-    url = generate_presigned_url(S3_BUCKET_NAME, r2_key)
-    
-    if url:
-        return redirect(url)
-    else:
-        flash("Could not generate a download link for the PDF.", "danger")
+    try:
+        grid_file = fs.get(file_id)
+        return send_file(
+            grid_file,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=grid_file.filename
+        )
+    except Exception as e:
+        app.logger.error(f"Failed to get file from GridFS: {e}")
+        flash("Could not find or retrieve the PDF file from the database.", "danger")
         return redirect(request.referrer or url_for("patient_dashboard"))
 
 # ============================================
@@ -697,7 +670,7 @@ def doctor_bulk_home():
     return render_template("doctor_bulk.html", batches=batches, q=q, model_name=ENSEMBLE_LABEL)
 
 # ============================================
-# ✅ --- HYBRID REWRITE: doctor_bulk_upload (Keeps R2 for XLSX) ---
+# ✅ --- GridFS REWRITE: doctor_bulk_upload ---
 # ============================================
 @app.route("/doctor/bulk/upload", methods=["POST"])
 @login_required
@@ -749,9 +722,6 @@ def doctor_bulk_upload():
     
     batch_id = ObjectId()
     
-    # --- R2 REWRITE: This is the R2 key ---
-    r2_object_key = f"exports/bulk_{batch_id}.xlsx"
-    
     out_rows = []
     rows_docs = []
     
@@ -787,11 +757,7 @@ def doctor_bulk_upload():
             "ensemble_pred": out["final_pred"],
         })
     
-    # --- R2 REWRITE: Upload XLSX to R2 ---
-    if s3_client is None:
-        flash("File storage is not configured. Cannot save batch.", "danger")
-        return redirect(url_for("doctor_bulk_home"))
-
+    # --- GridFS REWRITE: Upload XLSX to GridFS ---
     try:
         out_df = pd.DataFrame(out_rows)
         xlsx_io = io.BytesIO()
@@ -799,11 +765,11 @@ def doctor_bulk_upload():
             out_df.to_excel(writer, index=False, sheet_name="predictions")
         xlsx_io.seek(0)
         
-        s3_client.upload_fileobj(
-            xlsx_io,
-            S3_BUCKET_NAME,
-            r2_object_key,
-            ExtraArgs={'ContentType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
+        # Upload the XLSX data to GridFS
+        file_id = fs.put(
+            xlsx_io, 
+            filename=f"bulk_{batch_id}.xlsx", 
+            contentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     except Exception as e:
         app.logger.exception(e)
@@ -814,8 +780,7 @@ def doctor_bulk_upload():
         "_id": batch_id,
         "doctor_id": ObjectId(current_user.id),
         "filename": filename,
-        "r2_object_key": r2_object_key,  # Store the R2 key
-        "file_path": None, # This field is no longer used
+        "gridfs_file_id": file_id,  # Store the GridFS ID
         "row_count": len(out_rows),
         "has_label": has_label,
         "created_at": datetime.datetime.utcnow(),
@@ -826,14 +791,9 @@ def doctor_bulk_upload():
         for i in range(0, len(rows_docs), 1000):
             batch_rows_col.insert_many(rows_docs[i:i+1000])
     
-    # --- R2 REWRITE: Redirect to a download link ---
-    url = generate_presigned_url(S3_BUCKET_NAME, r2_object_key)
-    if url:
-        flash("Batch processed. Your download will begin.", "success")
-        return redirect(url) 
-    else:
-        flash("Batch processed, but download link failed.", "warning")
-        return redirect(url_for("doctor_bulk_home"))
+    # --- GridFS REWRITE: Redirect to the download function ---
+    flash("Batch processed successfully.", "success")
+    return redirect(url_for('doctor_bulk_download', bid=str(batch_id)))
 
 # ... (doctor_bulk_view is unchanged) ...
 @app.route("/doctor/bulk/<bid>", methods=["GET"])
@@ -919,13 +879,12 @@ def doctor_bulk_view(bid):
     )
 
 # ============================================
-# ✅ --- HYBRID REWRITE: doctor_bulk_download (Keeps R2) ---
+# ✅ --- GridFS REWRITE: doctor_bulk_download ---
 # ============================================
 @app.route("/doctor/bulk/<bid>/download", methods=["GET"])
 @login_required
 def doctor_bulk_download(bid):
     if current_user.role not in ("doctor", "admin"):
-        # ✅ --- FIX: Corrected typo ---
         abort(403)
     
     try:
@@ -941,22 +900,23 @@ def doctor_bulk_download(bid):
     if not batch:
         abort(404)
     
-    # --- R2 REWRITE: Get R2 key and generate a download link ---
-    r2_key = batch.get("r2_object_key")
-    if not r2_key:
+    # --- GridFS REWRITE: Get file from GridFS ---
+    file_id = batch.get("gridfs_file_id")
+    if not file_id:
         flash("File not found for this batch.", "danger")
         return redirect(url_for("doctor_bulk_view", bid=bid))
 
-    if s3_client is None:
-        flash("File storage is not configured.", "danger")
-        return redirect(url_for("doctor_bulk_view", bid=bid))
-
-    url = generate_presigned_url(S3_BUCKET_NAME, r2_key)
-    
-    if url:
-        return redirect(url)
-    else:
-        flash("Could not generate a download link for the file.", "danger")
+    try:
+        grid_file = fs.get(file_id)
+        return send_file(
+            grid_file,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=grid_file.filename
+        )
+    except Exception as e:
+        app.logger.error(f"Failed to get file from GridFS: {e}")
+        flash("Could not find or retrieve the XLSX file from the database.", "danger")
         return redirect(url_for("doctor_bulk_view", bid=bid))
 
 # ... (admin_dashboard is unchanged) ...
@@ -992,13 +952,12 @@ def admin_dashboard():
                           model_name="Admin")
 
 # ============================================
-# ✅ --- HYBRID REWRITE: admin_delete_user (Keeps R2) ---
+# ✅ --- GridFS REWRITE: admin_delete_user ---
 # ============================================
 @app.route("/admin/user/<uid>/delete", methods=["POST"])
 @login_required
 def admin_delete_user(uid):
     if not is_admin():
-        # ✅ --- FIX: Corrected typo ---
         abort(403)
     
     try:
@@ -1019,15 +978,14 @@ def admin_delete_user(uid):
             return redirect(url_for("admin_dashboard"))
     
     if role == "patient":
-        # --- R2 REWRITE: Delete reports from R2 ---
-        if s3_client:
-            patient_reports = list(reports_col.find({"patient_id": user_id}))
-            for r in patient_reports:
-                if r.get("r2_object_key"):
-                    try:
-                        s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=r["r2_object_key"])
-                    except Exception as e:
-                        app.logger.warning(f"Failed to delete R2 object {r['r2_object_key']}: {e}")
+        # --- GridFS REWRITE: Delete reports from GridFS ---
+        patient_reports = list(reports_col.find({"patient_id": user_id}))
+        for r in patient_reports:
+            if r.get("gridfs_file_id"):
+                try:
+                    fs.delete(r["gridfs_file_id"])
+                except Exception as e:
+                    app.logger.warning(f"Failed to delete GridFS file {r['gridfs_file_id']}: {e}")
         
         res = reports_col.delete_many({"patient_id": user_id})
         users_col.delete_one({"_id": user_id})
@@ -1038,14 +996,13 @@ def admin_delete_user(uid):
         doctor_batches = list(batches_col.find({"doctor_id": user_id}))
         bid_list = [b["_id"] for b in doctor_batches]
         
-        # --- R2 REWRITE: Delete batch files from R2 ---
-        if s3_client:
-            for b in doctor_batches:
-                if b.get("r2_object_key"):
-                    try:
-                        s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=b["r2_object_key"])
-                    except Exception as e:
-                        app.logger.warning(f"Failed to delete R2 object {b['r2_object_key']}: {e}")
+        # --- GridFS REWRITE: Delete batch files from GridFS ---
+        for b in doctor_batches:
+            if b.get("gridfs_file_id"):
+                try:
+                    fs.delete(b["gridfs_file_id"])
+                except Exception as e:
+                    app.logger.warning(f"Failed to delete GridFS file {b['gridfs_file_id']}: {e}")
 
         if bid_list:
             batch_rows_col.delete_many({"batch_id": {"$in": bid_list}})
@@ -1061,7 +1018,7 @@ def admin_delete_user(uid):
     return redirect(url_for("admin_dashboard"))
 
 # ============================================
-# ✅ --- HYBRID REWRITE: admin_delete_batch (Keeps R2) ---
+# ✅ --- GridFS REWRITE: admin_delete_batch ---
 # ============================================
 @app.route("/admin/batch/<bid>/delete", methods=["POST"])
 @login_required
@@ -1079,14 +1036,12 @@ def admin_delete_batch(bid):
         flash("Batch not found.", "danger")
         return redirect(url_for("admin_dashboard"))
     
-    # --- R2 REWRITE: Delete file from R2 ---
-    if s3_client:
-        r2_key = batch.get("r2_object_key")
-        if r2_key:
-            try:
-                s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=r2_key)
-            except Exception as e:
-                app.logger.warning(f"Failed to delete R2 object {r2_key}: {e}")
+    # --- GridFS REWRITE: Delete file from GridFS ---
+    if batch.get("gridfs_file_id"):
+        try:
+            fs.delete(batch["gridfs_file_id"])
+        except Exception as e:
+            app.logger.warning(f"Failed to delete GridFS file {batch['gridfs_file_id']}: {e}")
     
     batch_rows_col.delete_many({"batch_id": batch_id})
     batches_col.delete_one({"_id": batch_id})
@@ -1095,7 +1050,7 @@ def admin_delete_batch(bid):
     return redirect(url_for("admin_dashboard"))
 
 # ============================================
-# ✅ --- RUNNER (Unchanged) ---
+# RUNNER
 # ============================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
