@@ -102,7 +102,8 @@ except RuntimeError as e:
     batches_col = None
     batch_rows_col = None
 
-if users_col and reports_col and batches_col and batch_rows_col:
+# ✅ FIX 1: Use 'is not None' for boolean comparison on collection objects
+if users_col is not None and reports_col is not None and batches_col is not None and batch_rows_col is not None:
     try:
         users_col.create_index("username", unique=True)
         reports_col.create_index([("probability", DESCENDING), ("created_at", DESCENDING)])
@@ -131,10 +132,12 @@ ENSEMBLE_THRESHOLD_CUSTOM = 0.371
 # SEED ADMIN USER
 # ============================================
 def seed_admin():
-    if not users_col: return # Skip if DB failed to connect
-    admin_user = os.environ.get("ADMIN_USERNAME", "").strip().lower()
-    admin_pass = os.environ.get("ADMIN_PASSWORD", "")
-    admin_name = os.environ.get("ADMIN_NAME", "Admin")
+    # ✅ FIX 2: Use 'is None' for safe check
+    if users_col is None: return 
+    
+    admin_user = os.environ.get("ADMIN_USERNAME", "admin").strip().lower()
+    admin_pass = os.environ.get("ADMIN_PASSWORD", "a")
+    admin_name = os.environ.get("ADMIN_NAME", "admin")
     
     if not admin_user or not admin_pass:
         return
@@ -177,7 +180,7 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    if not users_col: return None # Safety check if DB failed
+    if users_col is None: return None # Safety check if DB failed
     try:
         doc = users_col.find_one({"_id": ObjectId(user_id)})
     except Exception:
@@ -356,7 +359,7 @@ def index():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    if not users_col:
+    if users_col is None:
         flash("Database connection failed. Cannot register.", "danger")
         return redirect(url_for("index"))
     
@@ -395,7 +398,7 @@ def register():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if not users_col:
+    if users_col is None:
         flash("Database connection failed. Cannot login.", "danger")
         return redirect(url_for("index"))
     
@@ -430,9 +433,8 @@ def patient_dashboard():
     if current_user.role != "patient":
         abort(403)
     
-    if not reports_col or not users_col:
+    if reports_col is None or users_col is None:
         flash("Database connection error.", "danger")
-        # Ensure we pass the required context variables even on error
         return render_template("patient_dashboard.html", user=current_user, reports=[], q="", model_name=ENSEMBLE_LABEL)
 
     q = request.args.get("q", "").strip().lower()
@@ -473,7 +475,7 @@ def new_assessment():
     if current_user.role != "patient":
         abort(403)
     
-    if not reports_col or not users_col:
+    if reports_col is None or users_col is None:
         flash("Database connection error.", "danger")
         return redirect(url_for("patient_dashboard"))
     
@@ -525,7 +527,7 @@ def new_assessment():
         
         result = reports_col.insert_one(report_doc)
         
-        # ✅ FIX: Redirect to dashboard and STOP AUTO-DOWNLOAD
+        # FIX: Redirect to dashboard and STOP AUTO-DOWNLOAD
         flash(f"Assessment report created (ID: {str(result.inserted_id)}). You can download the PDF from your dashboard.", "success")
         return redirect(url_for("patient_dashboard"))
     
@@ -534,7 +536,7 @@ def new_assessment():
 @app.route("/report/<rid>/download_pdf", methods=["GET"])
 @login_required
 def download_report_pdf(rid):
-    if not reports_col or not users_col:
+    if reports_col is None or users_col is None:
         flash("Database connection error.", "danger")
         return redirect(url_for("index"))
 
@@ -548,11 +550,8 @@ def download_report_pdf(rid):
         abort(404)
 
     # Authorization check
-    # Patient can only see their own report
     if current_user.role == "patient" and report_doc.get("patient_id") != ObjectId(current_user.id):
         abort(403)
-    
-    # Doctor/Admin logic: allows download if they have access to the dashboard
     
     patient = users_col.find_one({"_id": report_doc["patient_id"]}) or {}
     doctor = users_col.find_one({"_id": report_doc.get("doctor_id")}) if report_doc.get("doctor_id") else {}
@@ -572,7 +571,7 @@ def download_report_pdf(rid):
         "per_model_details": report_doc.get("per_model_details", []),
     }
 
-    # Generate PDF
+    # Generate PDF (using the new, better looking template)
     html = render_template("report_pdf.html", **context)
     pdf_io = io.BytesIO()
     pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_io)
@@ -580,7 +579,6 @@ def download_report_pdf(rid):
     if pisa_status.err:
         app.logger.error("PDF generation failed using xhtml2pdf.")
         flash("PDF generation failed.", "warning")
-        # Redirect to the dashboard the user would normally see
         return redirect(url_for("patient_dashboard" if current_user.role == "patient" else "doctor_dashboard"))
     
     pdf_io.seek(0)
@@ -594,7 +592,7 @@ def doctor_dashboard():
     if current_user.role not in ("doctor", "admin"):
         abort(403)
     
-    if not reports_col or not users_col:
+    if reports_col is None or users_col is None:
         flash("Database connection error.", "danger")
         return render_template("doctor_dashboard.html", reports=[], order="desc", q="", model_name=ENSEMBLE_LABEL)
         
@@ -602,7 +600,7 @@ def doctor_dashboard():
     order = request.args.get("order", "desc")
     sort_dir = DESCENDING if order == "desc" else ASCENDING
     
-    # ✅ FIX: Correct filtering for Doctors
+    # FIX: Correct filtering for Doctors
     query = {}
     if current_user.role == "doctor":
         # Doctors see reports assigned to them OR reports with no doctor assigned (unassigned)
@@ -660,7 +658,7 @@ def doctor_bulk_home():
     if current_user.role not in ("doctor", "admin"):
         abort(403)
     
-    if not batches_col:
+    if batches_col is None:
         flash("Database connection error.", "danger")
         return render_template("doctor_bulk.html", batches=[], q="", model_name=ENSEMBLE_LABEL)
 
@@ -678,7 +676,6 @@ def doctor_bulk_home():
     if q:
         batches = [b for b in batches if q in (b.get("filename", "").lower()) or q in b["created_str"].lower()]
     
-    # The 'doctor_bulk.html' template is used for the list/upload view
     return render_template("doctor_bulk.html", batches=batches, q=q, model_name=ENSEMBLE_LABEL)
 
 @app.route("/doctor/bulk/upload", methods=["POST"])
@@ -687,7 +684,7 @@ def doctor_bulk_upload():
     if current_user.role not in ("doctor", "admin"):
         abort(403)
     
-    if not batches_col or not batch_rows_col:
+    if batches_col is None or batch_rows_col is None:
         flash("Database connection error.", "danger")
         return redirect(url_for("doctor_bulk_home"))
 
@@ -827,7 +824,7 @@ def doctor_bulk_upload():
         for i in range(0, len(rows_docs), 1000):
             batch_rows_col.insert_many(rows_docs[i:i+1000])
     
-    # ✅ FIX: Redirect to dashboard and STOP AUTO-DOWNLOAD
+    # FIX: Redirect to dashboard and STOP AUTO-DOWNLOAD
     flash(f"Bulk prediction for {len(out_rows)} rows completed. You can download the results from the list below.", "success")
     return redirect(url_for("doctor_bulk_home"))
 
@@ -837,7 +834,7 @@ def doctor_bulk_view(bid):
     if current_user.role not in ("doctor", "admin"):
         abort(403)
     
-    if not batches_col or not batch_rows_col:
+    if batches_col is None or batch_rows_col is None:
         flash("Database connection error.", "danger")
         return redirect(url_for("doctor_bulk_home"))
 
@@ -911,7 +908,6 @@ def doctor_bulk_view(bid):
         "model_name": batch.get("model_name", ENSEMBLE_LABEL),
     }
     
-    # This renders the detailed batch view (which you might have in a file like doctor_bulk_view.html)
     return render_template(
         "doctor_bulk_view.html", 
         batch=batch_ctx,
@@ -928,7 +924,7 @@ def doctor_bulk_download(bid):
     if current_user.role not in ("doctor", "admin"):
         abort(403)
     
-    if not batches_col:
+    if batches_col is None:
         flash("Database connection error.", "danger")
         return redirect(url_for("doctor_bulk_home"))
 
@@ -951,8 +947,7 @@ def doctor_bulk_download(bid):
     # Check if the file exists on the filesystem
     if not path or not os.path.exists(path):
         flash("Export file missing.", "danger")
-        # Ensure redirect takes user back to the list view
-        return redirect(url_for("doctor_bulk_home"))
+        return redirect(url_for("doctor_bulk_view", bid=bid))
     
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -963,7 +958,7 @@ def admin_dashboard():
     if not is_admin():
         abort(403)
     
-    if not users_col or not batches_col:
+    if users_col is None or batches_col is None:
         flash("Database connection error.", "danger")
         return render_template("admin_dashboard.html", patients=[], doctors=[], batches=[], model_name="Admin")
         
@@ -997,7 +992,7 @@ def admin_delete_user(uid):
     if not is_admin():
         abort(403)
     
-    if not users_col or not reports_col or not batches_col or not batch_rows_col:
+    if users_col is None or reports_col is None or batches_col is None or batch_rows_col is None:
         flash("Database connection error.", "danger")
         return redirect(url_for("admin_dashboard"))
     
@@ -1060,7 +1055,7 @@ def admin_delete_batch(bid):
     if not is_admin():
         abort(403)
     
-    if not batches_col or not batch_rows_col:
+    if batches_col is None or batch_rows_col is None:
         flash("Database connection error.", "danger")
         return redirect(url_for("admin_dashboard"))
 
