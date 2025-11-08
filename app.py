@@ -16,7 +16,7 @@ import numpy as np
 from joblib import load
 from xhtml2pdf import pisa # Used for PDF generation
 
-# ✅ --- GridFS INCLUDED (Though not used in main logic, retained for completeness) ---
+# ✅ --- GridFS INCLUDED ---
 import gridfs
 
 # ============================================
@@ -432,6 +432,7 @@ def patient_dashboard():
     
     if not reports_col or not users_col:
         flash("Database connection error.", "danger")
+        # Ensure we pass the required context variables even on error
         return render_template("patient_dashboard.html", user=current_user, reports=[], q="", model_name=ENSEMBLE_LABEL)
 
     q = request.args.get("q", "").strip().lower()
@@ -524,7 +525,7 @@ def new_assessment():
         
         result = reports_col.insert_one(report_doc)
         
-        # ✅ FIX: Redirect to dashboard and stop auto-download
+        # ✅ FIX: Redirect to dashboard and STOP AUTO-DOWNLOAD
         flash(f"Assessment report created (ID: {str(result.inserted_id)}). You can download the PDF from your dashboard.", "success")
         return redirect(url_for("patient_dashboard"))
     
@@ -547,18 +548,12 @@ def download_report_pdf(rid):
         abort(404)
 
     # Authorization check
+    # Patient can only see their own report
     if current_user.role == "patient" and report_doc.get("patient_id") != ObjectId(current_user.id):
         abort(403)
     
-    # Doctors can download any report (as they are all available in the doctor's dashboard view)
-    if current_user.role == "doctor" and report_doc.get("patient_id") != ObjectId(current_user.id) and report_doc.get("doctor_id") != ObjectId(current_user.id):
-        # A Doctor can download if they are the assigned doctor or if they are just viewing it from the main list.
-        # Since the Doctor's dashboard shows all, we'll allow it unless they are a patient trying to view another's report.
-        pass
-
-    if current_user.role == "admin":
-        pass
-
+    # Doctor/Admin logic: allows download if they have access to the dashboard
+    
     patient = users_col.find_one({"_id": report_doc["patient_id"]}) or {}
     doctor = users_col.find_one({"_id": report_doc.get("doctor_id")}) if report_doc.get("doctor_id") else {}
 
@@ -583,8 +578,10 @@ def download_report_pdf(rid):
     pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_io)
 
     if pisa_status.err:
+        app.logger.error("PDF generation failed using xhtml2pdf.")
         flash("PDF generation failed.", "warning")
-        return redirect(url_for("patient_dashboard"))
+        # Redirect to the dashboard the user would normally see
+        return redirect(url_for("patient_dashboard" if current_user.role == "patient" else "doctor_dashboard"))
     
     pdf_io.seek(0)
     return send_file(pdf_io, as_attachment=True,
@@ -681,6 +678,7 @@ def doctor_bulk_home():
     if q:
         batches = [b for b in batches if q in (b.get("filename", "").lower()) or q in b["created_str"].lower()]
     
+    # The 'doctor_bulk.html' template is used for the list/upload view
     return render_template("doctor_bulk.html", batches=batches, q=q, model_name=ENSEMBLE_LABEL)
 
 @app.route("/doctor/bulk/upload", methods=["POST"])
@@ -705,7 +703,6 @@ def doctor_bulk_upload():
     filename = secure_filename(f.filename)
     
     try:
-        # Read the file as text first to handle different encodings if needed, but pd.read_csv is usually fine.
         f.seek(0)
         df = pd.read_csv(f)
     except Exception:
@@ -745,7 +742,7 @@ def doctor_bulk_upload():
         return redirect(url_for("doctor_bulk_home"))
 
     batch_id = ObjectId()
-    # Use GridFS for file storage if needed, but keeping the original file-system storage for now
+    # Path for saving the results XLSX on the filesystem
     export_path = os.path.join(EXPORT_DIR, f"bulk_{batch_id}.xlsx")
     
     out_rows = []
@@ -806,7 +803,7 @@ def doctor_bulk_upload():
 
     try:
         out_df = pd.DataFrame(out_rows)
-        # Use OpenPyXL for XLSX writing
+        # Use OpenPyXL for XLSX writing to disk
         with pd.ExcelWriter(export_path, engine="openpyxl") as writer:
             out_df.to_excel(writer, index=False, sheet_name="predictions")
     except Exception as e:
@@ -826,11 +823,11 @@ def doctor_bulk_upload():
     })
     
     if rows_docs:
-        # Bulk insert in batches of 1000 for large files
+        # Bulk insert batch rows
         for i in range(0, len(rows_docs), 1000):
             batch_rows_col.insert_many(rows_docs[i:i+1000])
     
-    # ✅ FIX: Redirect to dashboard and stop auto-download
+    # ✅ FIX: Redirect to dashboard and STOP AUTO-DOWNLOAD
     flash(f"Bulk prediction for {len(out_rows)} rows completed. You can download the results from the list below.", "success")
     return redirect(url_for("doctor_bulk_home"))
 
@@ -914,8 +911,9 @@ def doctor_bulk_view(bid):
         "model_name": batch.get("model_name", ENSEMBLE_LABEL),
     }
     
+    # This renders the detailed batch view (which you might have in a file like doctor_bulk_view.html)
     return render_template(
-        "doctor_bulk_view.html", # Renamed template for clarity
+        "doctor_bulk_view.html", 
         batch=batch_ctx,
         rows=processed_rows,
         model_order=MODEL_ORDER,
@@ -953,7 +951,8 @@ def doctor_bulk_download(bid):
     # Check if the file exists on the filesystem
     if not path or not os.path.exists(path):
         flash("Export file missing.", "danger")
-        return redirect(url_for("doctor_bulk_view", bid=bid))
+        # Ensure redirect takes user back to the list view
+        return redirect(url_for("doctor_bulk_home"))
     
     return send_file(path, as_attachment=True, download_name=os.path.basename(path),
                       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -1090,5 +1089,6 @@ def admin_delete_batch(bid):
     return redirect(url_for("admin_dashboard"))
 
 if __name__ == "__main__":
+    # Use a dynamic port or default to 8000
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=True)
