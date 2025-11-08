@@ -35,7 +35,7 @@
                             {% endif %}
                         </td>
                         <td>
-                            <a href="{{ url_for('download_report_pdf', report_id=r.id_str) }}" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">PDF</a>
+                            <a href="{{ url_for('download_report_pdf', rid=r.id_str) }}" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">PDF</a>
                         </td>
                     </tr>
                 {% endfor %}
