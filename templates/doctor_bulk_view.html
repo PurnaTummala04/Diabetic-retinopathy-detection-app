@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Batch Results: {{ batch.filename }}</h2>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+        <div style="background: var(--card-bg); padding: 1rem; border-radius: 8px;">
+            <strong>Filename:</strong> {{ batch.filename }}
+        </div>
+        <div style="background: var(--card-bg); padding: 1rem; border-radius: 8px;">
+            <strong>Rows:</strong> {{ batch.row_count }}
+        </div>
+        <div style="background: var(--card-bg); padding: 1rem; border-radius: 8px;">
+            <strong>Uploaded:</strong> {{ batch.created_str }}
+        </div>
+    </div>
+
+    <form method="GET" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center;">
+        <input type="text" name="q" placeholder="Search..." value="{{ q }}" style="flex: 1; min-width: 250px;">
+        <select name="order" style="min-width: 150px;">
+            <option value="desc" {% if order == 'desc' %}selected{% endif %}>Highest Prob</option>
+            <option value="asc" {% if order == 'asc' %}selected{% endif %}>Lowest Prob</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a href="{{ url_for('doctor_bulk_download', bid=batch.id_str) }}" class="btn btn-success">Download XLSX</a>
+        <a href="{{ url_for('doctor_bulk_home') }}" class="btn" style="background: var(--info);">Back to Batches</a>
+    </form>
+    
+    {% if rows %}
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Features</th>
+                        {% if batch.has_label %}<th>True Label</th>{% endif %}
+                        {% for m in model_order %}<th>{{ m }} Prob</th>{% endfor %}
+                        <th>Ensemble Prob</th>
+                        <th>Ensemble Pred</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                        <tr>
+                            <td style="font-size: 0.85rem;">
+                                {% for f in ['exudates_count', 'hemorrhages_count', 'microaneurysms_count', 'vessel_tortuosity', 'macular_thickness', 'fasting_glucose', 'hba1c', 'diabetes_duration'] %}
+                                    <strong>{{ f|replace('_',' ')|title }}:</strong> {{ r.features[f] }}<br>
+                                {% endfor %}
+                            </td>
+                            {% if batch.has_label %}<td>{{ r.true_label if r.true_label is not none else "N/A" }}</td>{% endif %}
+                            {% for m in model_order %}
+                                <td>
+                                    {{ "%.3f"|format(r.per_model[m].prob) }}
+                                </td>
+                            {% endfor %}
+                            <td><strong>{{ "%.3f"|format(r.ensemble_avg_prob) }}</strong></td>
+                            <td>
+                                {% if r.ensemble_pred == 1 %}
+                                    <span style="color: var(--danger); font-weight: 600;">DR</span>
+                                {% else %}
+                                    <span style="color: var(--success); font-weight: 600;">No</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p style="color: var(--text-secondary);">No rows match your current filter/search.</p>
+    {% endif %}
+</div>
+{% endblock %}
