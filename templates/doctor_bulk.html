@@ -2,119 +2,47 @@
 
 {% block content %}
 <div class="card">
-    {% if not batch %}
-        <h2>Bulk Predictions</h2>
+    <h2>Bulk Predictions</h2>
 
-        <div style="margin-bottom: 2rem;">
-            <h3 style="margin-bottom: 1rem;">Upload CSV File</h3>
-            <form method="POST" action="/doctor/bulk/upload" enctype="multipart/form-data">
-                <div class="form-group">
-                    <label for="file">Select CSV File</label>
-                    <input type="file" id="file" name="file" accept=".csv" required>
-                </div>
-                <button type="submit" class="btn btn-primary">Upload</button>
-            </form>
-        </div>
-
-        <h3 style="margin: 2rem 0 1rem;">Recent Batches</h3>
-
-        {% if batches %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Uploaded (IST)</th>
-                        <th>Filename</th>
-                        <th>Rows</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for b in batches %}
-                        <tr>
-                            <td>{{ b.created_str }}</td>
-                            <td>{{ b.filename }}</td>
-                            <td>{{ b.row_count }}</td>
-                            <td>
-                                <a href="/doctor/bulk/{{ b.id_str }}" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">View</a>
-                                <a href="/doctor/bulk/{{ b.id_str }}/download" class="btn btn-success" style="padding: 0.5rem 1rem; font-size: 0.9rem;">Download</a>
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <p style="color: var(--text-secondary);">No batches yet. Upload a CSV to begin.</p>
-        {% endif %}
-
-    {% else %}
-        <h2>Batch Results</h2>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-            <div style="background: var(--card-bg); padding: 1rem; border-radius: 8px;">
-                <strong>Filename:</strong> {{ batch.filename }}
+    <div style="margin-bottom: 2rem;">
+        <h3 style="margin-bottom: 1rem;">Upload CSV File</h3>
+        <form method="POST" action="/doctor/bulk/upload" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="file">Select CSV File (Required features: exudates_count, hemorrhages_count, microaneurysms_count, vessel_tortuosity, macular_thickness, fasting_glucose, hba1c, diabetes_duration)</label>
+                <input type="file" id="file" name="file" accept=".csv" required>
             </div>
-            <div style="background: var(--card-bg); padding: 1rem; border-radius: 8px;">
-                <strong>Rows:</strong> {{ batch.row_count }}
-            </div>
-            <div style="background: var(--card-bg); padding: 1rem; border-radius: 8px;">
-                <strong>Uploaded:</strong> {{ batch.created_str }}
-            </div>
-        </div>
-
-        <form method="GET" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: center;">
-            <input type="hidden" name="bid" value="{{ batch.id_str }}">
-            <input type="text" name="q" placeholder="Search..." value="{{ q }}" style="flex: 1; min-width: 250px;">
-            <select name="order" style="min-width: 150px;">
-                <option value="desc" {% if order == 'desc' %}selected{% endif %}>Highest Prob</option>
-                <option value="asc" {% if order == 'asc' %}selected{% endif %}>Lowest Prob</option>
-            </select>
-            <button type="submit" class="btn btn-primary">Filter</button>
-            <a href="/doctor/bulk/{{ batch.id_str }}/download" class="btn btn-success">Download XLSX</a>
+            <button type="submit" class="btn btn-primary">Upload</button>
         </form>
+    </div>
 
-        <div style="overflow-x: auto;">
-            <table>
-                <thead>
+    <h3 style="margin: 2rem 0 1rem;">Recent Batches</h3>
+
+    {% if batches %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Uploaded (IST)</th>
+                    <th>Filename</th>
+                    <th>Rows</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in batches %}
                     <tr>
-                        <th>Features</th>
-                        {% if batch.has_label %}<th>True Label</th>{% endif %}
-                        {% for m in model_order %}<th>{{ m }} Prob</th><th>{{ m }} Pred</th>{% endfor %}
-                        <th>Ensemble Prob</th>
-                        <th>Ensemble Pred</th>
+                        <td>{{ b.created_str }}</td>
+                        <td>{{ b.filename }}</td>
+                        <td>{{ b.row_count }}</td>
+                        <td>
+                            <a href="{{ url_for('doctor_bulk_view', bid=b.id_str) }}" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">View</a>
+                            <a href="{{ url_for('doctor_bulk_download', bid=b.id_str) }}" class="btn btn-success" style="padding: 0.5rem 1rem; font-size: 0.9rem;">Download XLSX</a>
+                        </td>
                     </tr>
-                </thead>
-                <tbody>
-                    {% for r in rows %}
-                        <tr>
-                            <td style="font-size: 0.85rem;">
-                                {% for f in ['exudates_count', 'hemorrhages_count', 'microaneurysms_count', 'vessel_tortuosity', 'macular_thickness', 'fasting_glucose', 'hba1c', 'diabetes_duration'] %}
-                                    <strong>{{ f }}:</strong> {{ r.features[f] }}<br>
-                                {% endfor %}
-                            </td>
-                            {% if batch.has_label %}<td>{{ r.true_label if r.true_label is not none else "N/A" }}</td>{% endif %}
-                            {% for m in model_order %}
-                                <td>{{ "%.3f"|format(r.per_model[m].prob) }}</td>
-                                <td>
-                                    {% if r.per_model[m].pred == 1 %}
-                                        <span style="color: var(--danger);">DR</span>
-                                    {% else %}
-                                        <span style="color: var(--success);">No</span>
-                                    {% endif %}
-                                </td>
-                            {% endfor %}
-                            <td><strong>{{ "%.3f"|format(r.ensemble_avg_prob) }}</strong></td>
-                            <td>
-                                {% if r.ensemble_pred == 1 %}
-                                    <span style="color: var(--danger); font-weight: 600;">DR</span>
-                                {% else %}
-                                    <span style="color: var(--success); font-weight: 600;">No</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="color: var(--text-secondary);">No batches yet. Upload a CSV to begin.</p>
     {% endif %}
 </div>
 {% endblock %}
